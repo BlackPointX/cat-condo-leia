@@ -2488,7 +2488,7 @@
     mAdd(txt(s, GW / 2, 400, 'Ustawienia', 56, '#5a3d5c'), 1002);
     var sb = mAdd(s.add.circle(580, 398, 34, muted ? 0xe9e1f2 : 0xffe9f3).setStrokeStyle(5, muted ? 0xb7a7c9 : 0xffb3d1).setInteractive(), 1002); mAdd(txt(s, 580, 398, muted ? '🔇' : '🔊', 36), 1003);   // Etap 41: dźwięki wł./wył.
     sb.on('pointerup', function () { setMuted(!muted); closeModal(); openSettings(s); });
-    mAdd(txt(s, GW / 2, 482, 'Gra zapisuje się sama – postęp zostaje po odświeżeniu strony.', 26, '#8a6f8c'), 1002).setWordWrapWidth(480);
+    mAdd(txt(s, GW / 2, 482, cloudStatus() || 'Gra zapisuje się sama – postęp zostaje po odświeżeniu strony.', CLOUD.on ? 23 : 26, CLOUD.on && !CLOUD.synced ? '#c23a58' : '#8a6f8c'), 1002).setWordWrapWidth(480);
     // Etap 18: przełącznik Trybu Deweloperskiego
     var dy = 585, on = devMode;
     mAdd(s.add.rectangle(140, dy, 58, 58, on ? 0x3ecf6b : 0xffffff).setStrokeStyle(6, on ? 0x279a4c : 0xb9a8ff), 1002); if (on) mAdd(txt(s, 140, dy - 2, '✓', 44, '#ffffff'), 1003);
@@ -2539,7 +2539,7 @@
         try {
           var d = JSON.parse(decodeURIComponent(escape(atob(ta.value.trim())))); if (!d || typeof d !== 'object' || d.v < 1 || d.v > SAVE_V) throw 0;
           try { window.localStorage.setItem('catcondo_leia_save_before_import', window.localStorage.getItem(SAVE_KEY) || ''); } catch (e) { }
-          H.noSave = true; window.localStorage.setItem(SAVE_KEY, JSON.stringify(d)); msg.textContent = 'Wczytano! Odświeżam grę…'; setTimeout(function () { window.location.reload(); }, 500);
+          d.t = Date.now(); H.noSave = true; window.localStorage.setItem(SAVE_KEY, JSON.stringify(d)); cloudForce(); msg.textContent = 'Wczytano! Odświeżam grę…'; setTimeout(function () { window.location.reload(); }, 500);
         } catch (e) { msg.textContent = 'To nie wygląda na zapis z gry – sprawdź, czy skopiowano całość.'; }
       });
     }
@@ -2550,11 +2550,11 @@
   var RESET_BAK_KEY = 'catcondo_leia_save_before_reset';
   function doReset() {
     try { saveGame(); var raw = window.localStorage.getItem(SAVE_KEY); if (raw) window.localStorage.setItem(RESET_BAK_KEY, raw); } catch (e0) { }
-    H.noSave = true; try { window.localStorage.removeItem(SAVE_KEY); } catch (e) { } try { window.location.reload(); } catch (e2) { }
+    H.noSave = true; try { window.localStorage.removeItem(SAVE_KEY); } catch (e) { } cloudForce(); try { window.location.reload(); } catch (e2) { }
   }
   function undoReset() {
     try { var raw = window.localStorage.getItem(RESET_BAK_KEY); if (!raw) return; var d = JSON.parse(raw); if (!d || typeof d !== 'object') return;
-      H.noSave = true; window.localStorage.setItem(SAVE_KEY, raw); window.localStorage.removeItem(RESET_BAK_KEY); window.location.reload(); } catch (e) { }
+      H.noSave = true; window.localStorage.setItem(SAVE_KEY, raw); window.localStorage.removeItem(RESET_BAK_KEY); cloudForce(); window.location.reload(); } catch (e) { }
   }
   function resetSave(s) {   // własne okno potwierdzenia (systemowe confirm() bywa blokowane w ramce)
     closeModal(); overlay(s);
@@ -2650,6 +2650,61 @@
   function advDone(m) { return !!m.startedAt && (devMode || Date.now() >= m.endsAt); }
   // ================= Etap 11: zapis gry (localStorage) =================
   // Klucz i wersja zapisu. Zmiana struktury = podbij v i dopisz migrację w loadGame(). ?reset=1 w adresie kasuje zapis.
+  // ================= Etap 42: ZAPIS ONLINE (Firebase Realtime Database, REST) =================
+  // Działa TYLKO na zewnętrznej stronie gry (mcpixai.pl / github.io). W oknie Claude gra się z bazą nie łączy (to piaskownica do testów).
+  // Start: gra pobiera zapis z bazy i bierze NOWSZY z dwóch (telefon / baza). W trakcie gry wysyła zapis co ~20 s i przy wyjściu.
+  // Bezpieczniki: (1) telefon, który jeszcze nigdy się nie zsynchronizował, zawsze bierze zapis z bazy (świeża gra nie nadpisze postępu),
+  //   (2) gdy start bez połączenia – w tej sesji nic nie jest wysyłane, (3) zapis z bazy wyraźnie „większy” od lokalnego wygrywa, (4) raz dziennie kopia zapisu w bazie (_d0.._d6),
+  //   (5) lokalny zapis zastąpiony przez bazę zostaje w kopii catcondo_leia_save_before_cloud. Reset i „Wczytaj zapis” są celowe – wysyłają się do bazy (stary stan trafia do _bak).
+  var CLOUD_DB = 'https://cat-condo-leia-default-rtdb.europe-west1.firebasedatabase.app', CLOUD_ID = 'L3ia-k0tki-7Qx9vTz4mWp2RbN8cYd5';
+  var CL_HOST = window.location.hostname, CL_TEST = ((CL_HOST === 'localhost' || CL_HOST === '127.0.0.1') && (String(window.location.search).match(/[?&]cloudurl=([^&]+)/) || [])[1]) || '';
+  var CLOUD = { base: /(^|\.)mcpixai\.pl$|\.github\.io$/.test(CL_HOST) ? CLOUD_DB : (CL_TEST ? decodeURIComponent(CL_TEST) : ''), synced: false, dirty: false, last: 0, fail: false, msg: '', rev: 0, checked: 0 };
+  CLOUD.on = !!CLOUD.base && typeof window.fetch === 'function';
+  function cloudUrl(suf) { return CLOUD.base + '/leia/' + CLOUD_ID + (suf || '') + '.json'; }
+  function cloudScore(d) { return d ? Object.keys(d.discovered || {}).length + (Number(d.pLevel) || 0) : -1; }
+  function cloudPut(raw, suf, keep) { var d; try { d = JSON.parse(raw); } catch (e) { return Promise.resolve(false); }
+    return window.fetch(cloudUrl(suf), { method: 'PUT', body: JSON.stringify({ t: Number(d.t) || Date.now(), v: d.v, s: raw }), keepalive: !!keep }).then(function (r) { return r.ok; }).catch(function () { return false; }); }
+  // Wysyłka z kontrolą: najpierw sprawdzamy, czy w bazie nie pojawił się zapis NOWSZY niż ten, który znamy (ktoś grał na innym telefonie).
+  // Jeśli tak – ten telefon ma stary stan: przestaje zapisywać i wczytuje grę od nowa z bazy (nowszy postęp zawsze wygrywa).
+  function cloudConflict() {
+    if (!CLOUD.synced) return; CLOUD.synced = false; H.noSave = true; try { window.localStorage.removeItem('catcondo_leia_cloud_seen'); } catch (e) { }
+    var tip = document.createElement('div'); tip.textContent = '☁️ Na innym telefonie jest nowszy zapis – wczytuję…'; tip.style.cssText = 'position:fixed;left:0;right:0;top:40%;padding:18px;text-align:center;color:#fff;background:rgba(40,25,60,.9);font:bold 22px system-ui,sans-serif;z-index:99999'; document.body.appendChild(tip);
+    window.setTimeout(function () { try { window.location.reload(); } catch (e) { } }, 1600);
+  }
+  function cloudCheck(then) {
+    if (!CLOUD.on || !CLOUD.synced) return;
+    window.fetch(CLOUD.base + '/leia/' + CLOUD_ID + '/t.json', { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); }).then(function (ct) {
+      CLOUD.checked = Date.now(); if (Number(ct) > CLOUD.rev && !CLOUD.force) { cloudConflict(); return; } if (then) then();   // CLOUD.force: celowy Reset / „Wczytaj zapis” ma pierwszeństwo, dopóki nie trafi do bazy
+    }).catch(function () { CLOUD.fail = true; });
+  }
+  function cloudPush(keep) {
+    if (!CLOUD.on || !CLOUD.synced || !CLOUD.dirty || devMode || H.noSave) return; var raw = null, t = 0; try { raw = window.localStorage.getItem(SAVE_KEY); t = Number(JSON.parse(raw).t) || 0; } catch (e) { raw = null; } if (!raw) return;
+    function put() { if (!CLOUD.synced) return; CLOUD.dirty = false; cloudPut(raw, '', keep).then(function (ok) { CLOUD.fail = !ok; if (ok) { CLOUD.last = Date.now(); CLOUD.rev = Math.max(CLOUD.rev, t); if (CLOUD.force) { CLOUD.force = false; try { window.localStorage.removeItem('catcondo_leia_cloud_push'); } catch (e) { } } } else CLOUD.dirty = true; }); }
+    if (keep) { if (Date.now() - (CLOUD.checked || 0) < 45000) put(); return; }   // przy zamykaniu strony nie ma czasu na sprawdzenie – wysyłamy tylko, gdy sprawdzaliśmy przed chwilą
+    cloudCheck(put);
+  }
+  function cloudForce() { try { if (CLOUD.on) window.localStorage.setItem('catcondo_leia_cloud_push', '1'); } catch (e) { } }
+  function cloudBoot(start) {
+    if (!CLOUD.on) { start(); return; }
+    var done = false, tip = document.createElement('div'); tip.textContent = '☁️ Wczytuję zapis…'; tip.style.cssText = 'position:fixed;left:0;right:0;top:45%;text-align:center;color:#fff;font:bold 22px system-ui,sans-serif;z-index:9'; document.body.appendChild(tip);
+    function go(msg) { if (done) return; done = true; CLOUD.msg = msg || ''; try { tip.remove(); } catch (e) { } start(); }
+    var timer = window.setTimeout(function () { go('brak połączenia'); }, 8000);
+    window.fetch(cloudUrl(), { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); }).then(function (c) {
+      if (done) return; window.clearTimeout(timer);
+      var LS = window.localStorage, rawL = LS.getItem(SAVE_KEY), L = null, C = null, seen = LS.getItem('catcondo_leia_cloud_seen') === '1', force = LS.getItem('catcondo_leia_cloud_push') === '1';
+      try { L = rawL ? JSON.parse(rawL) : null; } catch (e1) { L = null; }
+      if (c && typeof c.s === 'string') { try { C = JSON.parse(c.s); } catch (e2) { C = null; } }
+      if (C && Number(C.v) > SAVE_V) { go('w bazie jest zapis z nowszej wersji gry – odśwież stronę'); return; }   // stara, zapamiętana wersja strony: nie ruszamy bazy
+      var adopt = !!C && !force && (!L || !seen || (Number(C.t) || 0) > (Number(L.t) || 0) || cloudScore(C) > cloudScore(L) + 2);
+      if (adopt) { if (rawL) LS.setItem('catcondo_leia_save_before_cloud', rawL); LS.setItem(SAVE_KEY, c.s); }
+      else { if (C && force) cloudPut(c.s, '_bak'); CLOUD.dirty = true; }   // wygrywa telefon -> wyślemy po starcie
+      LS.setItem('catcondo_leia_cloud_seen', '1'); CLOUD.force = force;
+      if (C) { var day = String(new Date().getDay()); if (LS.getItem('catcondo_leia_cloud_day') !== day) { LS.setItem('catcondo_leia_cloud_day', day); cloudPut(c.s, '_d' + day); } }
+      CLOUD.rev = c ? (Number(c.t) || 0) : 0; CLOUD.checked = Date.now(); CLOUD.synced = true; CLOUD.last = Date.now(); go('');
+    }).catch(function () { window.clearTimeout(timer); go('brak połączenia'); });
+  }
+  function cloudStatus() { if (!CLOUD.on) return ''; if (!CLOUD.synced) return '☁️ Zapis online: ' + (CLOUD.msg || 'brak połączenia') + '. Postęp zapisuje się teraz tylko na tym telefonie.';
+    var d = new Date(CLOUD.last), hh = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); return CLOUD.fail ? '☁️ Zapis online: chwilowo brak połączenia (ostatnio ' + hh + ').' : '☁️ Zapis online działa (ostatnio ' + hh + ').'; }
   var SAVE_KEY = 'catcondo_leia_save', SAVE_V = 3, SAVE_EVERY_MS = 3000;
   function num(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : d; }
   function obj(v) { return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {}; }
@@ -2663,7 +2718,7 @@
         decorOwn: decorOwn, bg: decorSel.bg, shelfStyle: shelfStyle.slice(0, NSLOTS), decorDefault: decorDefault, memNext: memNext, mazeNext: mazeNext, peelNext: peelNext, m3Next: m3Next, fnNext: fnNext, toys: toysOwned, toyBuyAt: toyBuyAt,
         adv: advSlots.map(function (a) { var rd = devMode ? (a.ready && Date.now() >= a.endsAt) : a.ready; return { tier: a.tier, startedAt: a.startedAt, endsAt: a.endsAt, catLevel: a.catLevel, bubUsed: !!a.bubUsed, story: a.story || null, ready: rd, notified: devMode ? (a.notified && rd) : a.notified }; })
       };
-      window.localStorage.setItem(SAVE_KEY, JSON.stringify(d)); return true;
+      window.localStorage.setItem(SAVE_KEY, JSON.stringify(d)); CLOUD.dirty = true; return true;
     } catch (e) { return false; }
   }
   function loadGame() {
@@ -2688,8 +2743,8 @@
     decorDefault = okStyle(d.decorDefault); shelfStyle = []; for (var i = 0; i < NSLOTS; i++) shelfStyle[i] = Array.isArray(d.shelfStyle) && d.shelfStyle[i] ? okStyle(d.shelfStyle[i]) : null;
     memNext = num(d.memNext, 0); mazeNext = num(d.mazeNext, 0); peelNext = num(d.peelNext, 0); m3Next = num(d.m3Next, 0); fnNext = num(d.fnNext, 0); toysOwned = {}; TOYS.forEach(function (t) { if (d.toys && d.toys[t.id]) toysOwned[t.id] = true; }); toyBuyAt = num(d.toyBuyAt, 0);
   }
-  window.addEventListener('pagehide', function () { saveGame(); });
-  document.addEventListener('visibilitychange', function () { if (document.hidden) saveGame(); });
+  window.addEventListener('pagehide', function () { saveGame(); cloudPush(true); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) { saveGame(); cloudPush(true); } else cloudCheck(null); });   // po powrocie do gry: czy na innym telefonie nie ma nowszego zapisu
   // ================= Etap 8: Minigry (limit 24 h) =================
   function renderMg(s) {
     mgObjs.forEach(killDestroy); mgObjs = []; H.mgTimers = []; H.mgSig = memReady() + '|' + mazeReady() + '|' + peelReady() + '|' + m3Ready() + '|' + fnReady();
@@ -3709,7 +3764,8 @@
       var cp = s.add.image(0, 0, 'ball3'); cp.setScale(92 / cp.width); gc.add([H.gachaBg, cp]); gc.setInteractive(); H.gachaBtn = gc;
       button(s, gc, function () { if (!modalObjs.length) openShop(s); }); 
       placeAllToys(s);
-      if (SV) window.setTimeout(function () { try { offlineReward(s, SV); } catch (e) { } }, 1500);   // Etap 38: zarobek kotków pod nieobecność
+      if (SV) window.setTimeout(function () { try { offlineReward(s, SV); } catch (e) { } }, 1500);
+      window.setInterval(function () { cloudPush(false); }, 20000); window.setTimeout(function () { cloudPush(false); }, 4000);   // Etap 42: wysyłka zapisu do bazy   // Etap 38: zarobek kotków pod nieobecność
       // pętle gry
       setupDrag(s);
       s.time.addEvent({ delay: 1000, loop: true, callback: function () { // pasywny przychód
@@ -3725,7 +3781,7 @@
       s.time.addEvent({ delay: SAVE_EVERY_MS, loop: true, callback: saveGame }); if (!SV) saveGame();
       if (/[?&]egg=1/.test(window.location.search)) { WEEKLY_TASKS.tasks.forEach(function (t) { taskDone[t.id] = true; }); secretReady = true; updateDots(); s.time.delayedCall(600, function () { startEgg(s); }); }   // TEST: od razu jajko
       if (/[?&]tasks=1/.test(window.location.search)) s.time.delayedCall(600, function () { openTasks(s); });
-      if (/[?&]debug=1/.test(window.location.search)) window.__t = { openFruit: openFruit, fn: function () { return FN; }, setBoxCount: function (n) { boxCount = n; }, boxCount: function () { return boxCount; }, giveToy: function (id) { toysOwned[id] = true; placeToy(H.scene, TOYS.filter(function (x) { return x.id === id; })[0], true); }, cells: function () { return cells; }, toyEmit: function (id) { toyFloor[id].emit('pointerup'); }, toyInfo: function (id) { if (!id) return Object.keys(toyFloor).join(',') + '|' + Object.keys(toysOwned).join(','); var c = toyFloor[id]; return c && { x: c.x, y: c.y, v: c.visible, sc: c.scaleX, d: c.depth }; }, selCat: function () { return selCat; }, reveal: function (bi, ti) { revealBall(H.scene, bi, null, ti); }, closeModal: closeModal, state: function () { return { disc: Object.keys(discovered).map(Number), owned: JSON.parse(JSON.stringify(owned)), names: JSON.parse(JSON.stringify(names)), hidden: JSON.parse(JSON.stringify(hiddenAcc)) }; }, hideAcc: function (k, v) { hiddenAcc[k] = v; }, advActiveCount: advActiveCount, startMission: startMission, collectMission: collectMission, openBubbles: openBubbles, bub: function () { return BUB; }, advSlots: function () { return advSlots; }, openMatch3: openMatch3, m3: function () { return M3; }, m3Try: m3Try, openMinigames: openMinigames, openMap: openMap, m3Next: function () { return m3Next; }, openMaze: openMaze, openPeel: openPeel, peel: function () { return PL; }, peelPick: peelPick, peelNext: function () { return peelNext; }, SVGS: SVGS, names: function () { return names; }, renameCat: renameCat, renderAlbum: renderAlbum, genMaze: genMaze, placeAllToys: placeAllToys, openToys: openToys, buyToy: buyToy, toyBuyAt: function () { return toyBuyAt; }, TOYS: TOYS, TOY_FLOOR_SLOTS: TOY_FLOOR_SLOTS, TOY_WALL_SLOTS: TOY_WALL_SLOTS, bldOrder: bldOrder, decorOwn: function () { return decorOwn; }, toysOwned: function () { return toysOwned; }, mz: function () { return MZ; }, mazeNext: function () { return mazeNext; }, openMinigames: openMinigames, openSettings: openSettings, sfx: sfx, setMuted: setMuted, parentAsk: parentAsk, resetSave: resetSave, shareCat: shareCat, offlineReward: offlineReward, mgNextReset: mgNextReset, memNextNow: function () { return memNext; }, mgReadyNow: mgReady, setDevMode: setDevMode, openCountNow: function () { return openCount; }, shelfCount: function () { return shelfObjs.filter(function (o) { return o && o.shelf && o.shelf.scene; }).length; }, dev: function () { return { on: devMode, real: devReal }; }, advSlots: function () { return advSlots; }, C1: C1, enterBuilder: enterBuilder, exitBuilder: exitBuilder, bld: function () { return BLD; }, selectShelf: selectShelf, shelfStyle: function () { return shelfStyle; }, saveGame: saveGame, owned: owned, openAlbum: openAlbum, scene: s, openTasks: openTasks, startEgg: startEgg, secretOwn: secretOwn, secretShow: secretShow, refreshForms: refreshForms, renderAlbum: renderAlbum, taskDone: taskDone, setParent: function (v) { parentOK = v; }, getParent: function () { return parentOK; }, renderTasks: renderTasks, modals: function () { return modalObjs.length; }, setCoins: function (v) { coins = v; updateHUD(); }, setGems: function (v) { gems = v; updateHUD(); }, THEMES: THEMES };
+      if (/[?&]debug=1/.test(window.location.search)) window.__t = { openFruit: openFruit, fn: function () { return FN; }, setBoxCount: function (n) { boxCount = n; }, boxCount: function () { return boxCount; }, giveToy: function (id) { toysOwned[id] = true; placeToy(H.scene, TOYS.filter(function (x) { return x.id === id; })[0], true); }, cells: function () { return cells; }, toyEmit: function (id) { toyFloor[id].emit('pointerup'); }, toyInfo: function (id) { if (!id) return Object.keys(toyFloor).join(',') + '|' + Object.keys(toysOwned).join(','); var c = toyFloor[id]; return c && { x: c.x, y: c.y, v: c.visible, sc: c.scaleX, d: c.depth }; }, selCat: function () { return selCat; }, reveal: function (bi, ti) { revealBall(H.scene, bi, null, ti); }, closeModal: closeModal, state: function () { return { disc: Object.keys(discovered).map(Number), owned: JSON.parse(JSON.stringify(owned)), names: JSON.parse(JSON.stringify(names)), hidden: JSON.parse(JSON.stringify(hiddenAcc)) }; }, hideAcc: function (k, v) { hiddenAcc[k] = v; }, advActiveCount: advActiveCount, startMission: startMission, collectMission: collectMission, openBubbles: openBubbles, bub: function () { return BUB; }, advSlots: function () { return advSlots; }, openMatch3: openMatch3, m3: function () { return M3; }, m3Try: m3Try, openMinigames: openMinigames, openMap: openMap, m3Next: function () { return m3Next; }, openMaze: openMaze, openPeel: openPeel, peel: function () { return PL; }, peelPick: peelPick, peelNext: function () { return peelNext; }, SVGS: SVGS, names: function () { return names; }, renameCat: renameCat, renderAlbum: renderAlbum, genMaze: genMaze, placeAllToys: placeAllToys, openToys: openToys, buyToy: buyToy, toyBuyAt: function () { return toyBuyAt; }, TOYS: TOYS, TOY_FLOOR_SLOTS: TOY_FLOOR_SLOTS, TOY_WALL_SLOTS: TOY_WALL_SLOTS, bldOrder: bldOrder, decorOwn: function () { return decorOwn; }, toysOwned: function () { return toysOwned; }, mz: function () { return MZ; }, mazeNext: function () { return mazeNext; }, openMinigames: openMinigames, openSettings: openSettings, cloud: function () { return CLOUD; }, cloudPush: cloudPush, sfx: sfx, setMuted: setMuted, parentAsk: parentAsk, resetSave: resetSave, shareCat: shareCat, offlineReward: offlineReward, mgNextReset: mgNextReset, memNextNow: function () { return memNext; }, mgReadyNow: mgReady, setDevMode: setDevMode, openCountNow: function () { return openCount; }, shelfCount: function () { return shelfObjs.filter(function (o) { return o && o.shelf && o.shelf.scene; }).length; }, dev: function () { return { on: devMode, real: devReal }; }, advSlots: function () { return advSlots; }, C1: C1, enterBuilder: enterBuilder, exitBuilder: exitBuilder, bld: function () { return BLD; }, selectShelf: selectShelf, shelfStyle: function () { return shelfStyle; }, saveGame: saveGame, owned: owned, openAlbum: openAlbum, scene: s, openTasks: openTasks, startEgg: startEgg, secretOwn: secretOwn, secretShow: secretShow, refreshForms: refreshForms, renderAlbum: renderAlbum, taskDone: taskDone, setParent: function (v) { parentOK = v; }, getParent: function () { return parentOK; }, renderTasks: renderTasks, modals: function () { return modalObjs.length; }, setCoins: function (v) { coins = v; updateHUD(); }, setGems: function (v) { gems = v; updateHUD(); }, THEMES: THEMES };
       if (/[?&]zoomtest=1/.test(window.location.search)) { // TEST: co ~2,6 s Level Up + nowy kot na nowej półce – widać, jak kamera oddala drapak
         H.zoomLbl = txt(s, 130, 262, '', 26, '#ffffff', '#5b3bb0').setDepth(500); fitCam(s, true);
         for (var q = 0; q < openCount; q++) { discover(1 + q % 4); addCat(s, 1 + q % 4, q, false); }
@@ -3735,11 +3791,11 @@
     }
   });
 
-  new Phaser.Game({
+  cloudBoot(function () { new Phaser.Game({
     type: Phaser.AUTO, parent: 'game', width: GW, height: GH, backgroundColor: '#d6efff', scene: Main,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     input: { activePointers: 1, touch: { capture: true } }, render: { antialias: true, roundPixels: false }
-  });
+  }); });
 })();
 </script>
 </body>
