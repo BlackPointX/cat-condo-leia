@@ -2,6 +2,7 @@
 <html lang="pl">
 <head>
 <meta charset="utf-8">
+<script>window.__csp = []; document.addEventListener("securitypolicyviolation", function (e) { if (window.__csp.length < 3) window.__csp.push(String(e.violatedDirective) + " | " + String(e.originalPolicy).slice(0, 160)); });</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Cat Condo Leia</title>
 <style>
@@ -2703,7 +2704,7 @@
       CLOUD.rev = c ? (Number(c.t) || 0) : 0; CLOUD.checked = Date.now(); CLOUD.synced = true; CLOUD.last = Date.now(); go('');
     }).catch(function (e) { window.clearTimeout(timer); var st = e && e.st; go(st === 401 || st === 403 ? 'baza odmawia dostępu (błąd ' + st + ' – reguły bazy)' : st ? 'błąd bazy ' + st : 'brak połączenia z bazą (' + String(e && e.message || e).slice(0, 40) + ')'); });
   }
-  function cloudStatus() { if (!CLOUD.on) return ''; if (!CLOUD.synced) return '☁️ Zapis online: ' + (CLOUD.msg || 'brak połączenia') + '. Postęp zapisuje się teraz tylko na tym telefonie.';
+  function cloudStatus() { if (!CLOUD.on) return ''; if (!CLOUD.synced) return '☁️ Zapis online: ' + (CLOUD.msg || 'brak połączenia') + '. Postęp zapisuje się teraz tylko na tym telefonie.' + (window.__csp && window.__csp.length ? ' [CSP: ' + window.__csp[0] + ']' : ' [CSP: brak]');
     var d = new Date(CLOUD.last), hh = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); return CLOUD.fail ? '☁️ Zapis online: chwilowo brak połączenia (ostatnio ' + hh + ').' : '☁️ Zapis online działa (ostatnio ' + hh + ').'; }
   var SAVE_KEY = 'catcondo_leia_save', SAVE_V = 3, SAVE_EVERY_MS = 3000;
   function num(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : d; }
