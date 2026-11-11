@@ -2538,7 +2538,13 @@
       msg.textContent = 'Wklej tutaj zapis skopiowany z innej wersji gry i dotknij „Wczytaj”. Obecny postęp zostanie zastąpiony.';
       btn('Wczytaj', '#3ecf6b', function () {
         try {
-          var d = JSON.parse(decodeURIComponent(escape(atob(ta.value.trim())))); if (!d || typeof d !== 'object' || d.v < 1 || d.v > SAVE_V) throw 0;
+          var mR = ta.value.trim().match(/^odtw[oó]rz\s*(\d{1,2})?$/i), d;
+          if (mR) {   // Etap 42f: odtworzenie zgubionego postępu – koty 1–24 odkryte (bez dodatków), reszta obecnego zapisu bez zmian
+            d = JSON.parse(window.localStorage.getItem(SAVE_KEY) || 'null'); if (!d || typeof d !== 'object') throw 0;
+            d.discovered = d.discovered || {}; d.owned = d.owned || {}; for (var lR = 1; lR <= 24; lR++) { d.discovered[lR] = true; if (!d.owned[lR]) d.owned[lR] = [0, 0, 0, 0, 0, 0]; }
+            var pR = mR[1] ? Math.min(MAX_LEVEL * 3, Number(mR[1])) : 0; if (pR > (d.pLevel || 1)) { d.pLevel = pR; d.pExp = 0; }
+          } else d = JSON.parse(decodeURIComponent(escape(atob(ta.value.trim()))));
+          if (!d || typeof d !== 'object' || d.v < 1 || d.v > SAVE_V) throw 0;
           try { window.localStorage.setItem('catcondo_leia_save_before_import', window.localStorage.getItem(SAVE_KEY) || ''); } catch (e) { }
           d.t = Date.now(); H.noSave = true; window.localStorage.setItem(SAVE_KEY, JSON.stringify(d)); cloudForce(); msg.textContent = 'Wczytano! Odświeżam grę…'; setTimeout(function () { window.location.reload(); }, 500);
         } catch (e) { msg.textContent = 'To nie wygląda na zapis z gry – sprawdź, czy skopiowano całość.'; }
@@ -2547,7 +2553,7 @@
     btn('Zamknij', '#8f78ff', function () { box.remove(); });
     box.appendChild(ta); box.appendChild(msg); box.appendChild(row);
     if (mode === 'in') {   // Etap 42e: kopie zapasowe znalezione na tym urządzeniu
-      var BK = [['catcondo_leia_save', 'Obecny zapis'], ['catcondo_leia_save_before_reset', 'Sprzed resetu'], ['catcondo_leia_save_before_import', 'Sprzed wczytania'], ['catcondo_leia_save_before_restore', 'Sprzed przywrócenia'], ['catcondo_leia_save_before_cloud', 'Sprzed pobrania z chmury'], ['catcondo_leia_save_bak_e38', 'Stara kopia']];
+      var BK = [['catcondo_leia_save', 'Obecny zapis'], ['catcondo_leia_save_before_reset', 'Sprzed resetu'], ['catcondo_leia_save_before_import', 'Sprzed wczytania'], ['catcondo_leia_save_before_restore', 'Sprzed przywrócenia'], ['catcondo_leia_save_before_cloud', 'Sprzed pobrania z chmury'], ['catcondo_leia_save_bak_e38', 'Stara kopia'], ['catcondo_leia_save_unreadable', 'Nieczytelny zapis']];
       ['Niedziela', 'Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota'].forEach(function (n, i) { BK.push(['catcondo_leia_save_day_' + i, 'Kopia: ' + n]); });
       var lst = document.createElement('div'); lst.style.cssText = 'margin-top:10px;max-height:230px;overflow:auto;font-size:14px;text-align:left;border-top:2px solid #e2c4ff;padding-top:6px'; var hd = document.createElement('div'); hd.style.cssText = 'font-weight:bold;margin-bottom:4px'; hd.textContent = 'Zapisy znalezione na tym urządzeniu:'; lst.appendChild(hd); var found = 0;
       BK.forEach(function (b, i) {
@@ -2725,7 +2731,7 @@
   function num(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : d; }
   function obj(v) { return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {}; }
   function saveGame() {
-    if (H.noSave || devMode) return false;   // Etap 41: w Trybie Deweloperskim NIC się nie zapisuje – prawdziwy zapis leży nietknięty i wraca po wyłączeniu (przeładowanie)
+    if (H.noSave || devMode || !H.ready) return false;   // Etap 42f: nic nie zapisujemy, zanim gra wczyta zapis (wcześniej wyjście z aplikacji w trakcie ładowania nadpisywało zapis pustą grą)   // Etap 41: w Trybie Deweloperskim NIC się nie zapisuje – prawdziwy zapis leży nietknięty i wraca po wyłączeniu (przeładowanie)
     try {
       var d = {
         v: SAVE_V, t: Date.now(), coins: devMode && devReal ? devReal.coins : coins, gems: devMode && devReal ? devReal.gems : gems, pLevel: pLevel, pExp: pExp, tapsLeft: tapsLeft, boxCount: boxCount, openCount: devMode && devReal ? devReal.open : openCount,
@@ -2742,7 +2748,8 @@
       if (/[?&]reset=1/.test(window.location.search)) { window.localStorage.removeItem(SAVE_KEY); try { window.history.replaceState(null, '', window.location.pathname + window.location.search.replace(/[?&]reset=1/, '')); } catch (e2) { } return null; }
       var raw = window.localStorage.getItem(SAVE_KEY); if (!raw) return null;
       try { if (!window.localStorage.getItem('catcondo_leia_save_bak_e38')) window.localStorage.setItem('catcondo_leia_save_bak_e38', raw); } catch (e3) { }   // Etap 38: jednorazowa kopia zapasowa zapisu sprzed tej wersji
-      var d = JSON.parse(raw); if (!d || typeof d !== 'object' || (d.v < 1 || d.v > SAVE_V)) return null;
+      var d = null; try { d = JSON.parse(raw); } catch (eP) { d = null; }
+      if (!d || typeof d !== 'object' || !(d.v >= 1 && d.v <= SAVE_V)) { try { window.localStorage.setItem('catcondo_leia_save_unreadable', raw); } catch (eU) { } H.noSave = true; return null; }   // Etap 42f: nie nadpisujemy zapisu, którego ta wersja nie umie odczytać
       try { var dk = 'catcondo_leia_save_day_' + new Date().getDay(), mk = 'catcondo_leia_save_daymark'; if (window.localStorage.getItem(mk) !== dk) { window.localStorage.setItem(dk, raw); window.localStorage.setItem(mk, dk); } } catch (e5) { }   // Etap 42e: kopia zapisu raz dziennie (7 ostatnich dni)
       try { if (!window.localStorage.getItem('catcondo_leia_mgreset_e38b')) {   // Etap 38: jednorazowe wyzerowanie liczników minigier (po testach); reszta zapisu bez zmian
         d.memNext = 0; d.mazeNext = 0; d.peelNext = 0; d.m3Next = 0; d.fnNext = 0; window.localStorage.setItem(SAVE_KEY, JSON.stringify(d)); window.localStorage.setItem('catcondo_leia_mgreset_e38b', '1'); } } catch (e4) { }
@@ -3725,10 +3732,10 @@
       var bar = this.add.rectangle(GW / 2, GH / 2, 10, 24, 0xff8fb8); this.load.on('progress', function (v) { bar.width = 400 * v; }); this.load.on('complete', function () { bar.destroy(); });
     },
     update: function (t, dt) {
-      var LP = this.game.loop; if (!LP.inFocus) LP.inFocus = true; if (LP._coolDown > 0) LP._coolDown = 0;   // Etap 40: gra działa w ramce (iframe) i często „nie ma fokusu” – Phaser spowalniał wtedy zegar gry (timery), gdy telefon nie wyrabiał 60 kl./s
+      if (!H.ready) H.ready = true; var LP = this.game.loop; if (!LP.inFocus) LP.inFocus = true; if (LP._coolDown > 0) LP._coolDown = 0;   // Etap 40: gra działa w ramce (iframe) i często „nie ma fokusu” – Phaser spowalniał wtedy zegar gry (timery), gdy telefon nie wyrabiał 60 kl./s
       advUpdate(this); bldUpdate(dt); mazeUpdate(dt); },
     create: function () {
-      var s = this; H.scene = s; ensurePngFallback(s); var SV = loadGame(); if (SV) restoreVars(SV);   // zapis z localStorage
+      var s = this; H.scene = s; ensurePngFallback(s); var SV = loadGame(); if (SV) { restoreVars(SV); Object.keys(discovered).forEach(function (l) { ensureName(l); }); }   // zapis z localStorage
       try { if (window.localStorage.getItem(DEV_KEY) === '1') { devReal = { coins: coins, gems: gems, open: Math.max(START_SLOTS, SV ? Math.min(NSLOTS, num(SV.openCount, 0)) : 0) }; devMode = true; coins = DEV_FUNDS; gems = DEV_FUNDS; devFakeProgress(); } } catch (eD) { }   // Dev Mode zapamiętany między sesjami (prawdziwe saldo i tak leży w zapisie)
       // 3 kamery: main = tło (stałe), world = drapak i koty (zoom), ui = HUD, menu i okna (zawsze bez zoomu)
       H.cam = { bg: s.cameras.main, world: s.cameras.add(0, 0, GW, GH), ui: s.cameras.add(0, 0, GW, GH) }; H.cat = 'ui';
