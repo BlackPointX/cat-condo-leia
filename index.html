@@ -2545,7 +2545,22 @@
       });
     }
     btn('Zamknij', '#8f78ff', function () { box.remove(); });
-    box.appendChild(ta); box.appendChild(msg); box.appendChild(row); document.body.appendChild(box); if (mode === 'out') { ta.focus(); ta.select(); }
+    box.appendChild(ta); box.appendChild(msg); box.appendChild(row);
+    if (mode === 'in') {   // Etap 42e: kopie zapasowe znalezione na tym urządzeniu
+      var BK = [['catcondo_leia_save', 'Obecny zapis'], ['catcondo_leia_save_before_reset', 'Sprzed resetu'], ['catcondo_leia_save_before_import', 'Sprzed wczytania'], ['catcondo_leia_save_before_restore', 'Sprzed przywrócenia'], ['catcondo_leia_save_before_cloud', 'Sprzed pobrania z chmury'], ['catcondo_leia_save_bak_e38', 'Stara kopia']];
+      ['Niedziela', 'Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota'].forEach(function (n, i) { BK.push(['catcondo_leia_save_day_' + i, 'Kopia: ' + n]); });
+      var lst = document.createElement('div'); lst.style.cssText = 'margin-top:10px;max-height:230px;overflow:auto;font-size:14px;text-align:left;border-top:2px solid #e2c4ff;padding-top:6px'; var hd = document.createElement('div'); hd.style.cssText = 'font-weight:bold;margin-bottom:4px'; hd.textContent = 'Zapisy znalezione na tym urządzeniu:'; lst.appendChild(hd); var found = 0;
+      BK.forEach(function (b, i) {
+        var r0 = null, d0 = null; try { r0 = window.localStorage.getItem(b[0]); d0 = r0 ? JSON.parse(r0) : null; } catch (e) { } if (!d0 || typeof d0 !== 'object') return; found++;
+        var nd = 0; try { nd = Object.keys(d0.discovered || {}).length; } catch (e) { } var dt = d0.t ? new Date(d0.t) : null, ds = dt ? dt.getDate() + '.' + (dt.getMonth() + 1) + ' ' + ('0' + dt.getHours()).slice(-2) + ':' + ('0' + dt.getMinutes()).slice(-2) : '?';
+        var ln = document.createElement('div'); ln.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0'; var tx = document.createElement('span'); tx.style.cssText = 'flex:1'; tx.textContent = b[1] + ' – poziom ' + (d0.pLevel || 1) + ', kotów ' + nd + ', ' + ds; ln.appendChild(tx);
+        if (i > 0) { var rbn = document.createElement('button'); rbn.textContent = 'Przywróć'; rbn.style.cssText = 'font-size:14px;padding:6px 10px;border:0;border-radius:10px;color:#fff;background:#3ecf6b'; rbn.onclick = function () { try { var cur = window.localStorage.getItem(SAVE_KEY); if (cur && b[0] !== 'catcondo_leia_save_before_restore') window.localStorage.setItem('catcondo_leia_save_before_restore', cur); d0.t = Date.now(); H.noSave = true; window.localStorage.setItem(SAVE_KEY, JSON.stringify(d0)); cloudForce(); msg.textContent = 'Przywrócono! Odświeżam grę…'; setTimeout(function () { window.location.reload(); }, 500); } catch (e) { msg.textContent = 'Nie udało się przywrócić.'; } }; ln.appendChild(rbn); }
+        lst.appendChild(ln);
+      });
+      if (!found) { var no = document.createElement('div'); no.textContent = 'Brak – w tej przeglądarce nie ma żadnego zapisu gry.'; lst.appendChild(no); }
+      box.appendChild(lst);
+    }
+    document.body.appendChild(box); if (mode === 'out') { ta.focus(); ta.select(); }
   }
   // Etap 40: reset ma trzy zabezpieczenia: (1) pytanie dla rodzica, (2) osobne okno „Tak, usuń / Nie, wróć”, (3) kopia usuwanego zapisu, którą da się przywrócić („Cofnij ostatni reset” w Ustawieniach).
   var RESET_BAK_KEY = 'catcondo_leia_save_before_reset';
@@ -2704,7 +2719,7 @@
       CLOUD.rev = c ? (Number(c.t) || 0) : 0; CLOUD.checked = Date.now(); CLOUD.synced = true; CLOUD.last = Date.now(); go('');
     }).catch(function (e) { window.clearTimeout(timer); var st = e && e.st; go(st === 401 || st === 403 ? 'baza odmawia dostępu (błąd ' + st + ' – reguły bazy)' : st ? 'błąd bazy ' + st : 'brak połączenia z bazą (' + String(e && e.message || e).slice(0, 40) + ')'); });
   }
-  function cloudStatus() { if (!CLOUD.on) return ''; if (!CLOUD.synced) return '☁️ Zapis online: ' + (CLOUD.msg || 'brak połączenia') + '. Postęp zapisuje się teraz tylko na tym telefonie.' + (window.__csp && window.__csp.length ? ' [CSP: ' + window.__csp[0] + ']' : ' [CSP: brak]');
+  function cloudStatus() { if (!CLOUD.on) return ''; if (!CLOUD.synced) return '☁️ Zapis online: ' + (window.__csp && window.__csp.length ? 'domena blokuje połączenie z bazą' : (CLOUD.msg || 'brak połączenia')) + '. Postęp zapisuje się tylko na tym telefonie.';
     var d = new Date(CLOUD.last), hh = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); return CLOUD.fail ? '☁️ Zapis online: chwilowo brak połączenia (ostatnio ' + hh + ').' : '☁️ Zapis online działa (ostatnio ' + hh + ').'; }
   var SAVE_KEY = 'catcondo_leia_save', SAVE_V = 3, SAVE_EVERY_MS = 3000;
   function num(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : d; }
@@ -2728,6 +2743,7 @@
       var raw = window.localStorage.getItem(SAVE_KEY); if (!raw) return null;
       try { if (!window.localStorage.getItem('catcondo_leia_save_bak_e38')) window.localStorage.setItem('catcondo_leia_save_bak_e38', raw); } catch (e3) { }   // Etap 38: jednorazowa kopia zapasowa zapisu sprzed tej wersji
       var d = JSON.parse(raw); if (!d || typeof d !== 'object' || (d.v < 1 || d.v > SAVE_V)) return null;
+      try { var dk = 'catcondo_leia_save_day_' + new Date().getDay(), mk = 'catcondo_leia_save_daymark'; if (window.localStorage.getItem(mk) !== dk) { window.localStorage.setItem(dk, raw); window.localStorage.setItem(mk, dk); } } catch (e5) { }   // Etap 42e: kopia zapisu raz dziennie (7 ostatnich dni)
       try { if (!window.localStorage.getItem('catcondo_leia_mgreset_e38b')) {   // Etap 38: jednorazowe wyzerowanie liczników minigier (po testach); reszta zapisu bez zmian
         d.memNext = 0; d.mazeNext = 0; d.peelNext = 0; d.m3Next = 0; d.fnNext = 0; window.localStorage.setItem(SAVE_KEY, JSON.stringify(d)); window.localStorage.setItem('catcondo_leia_mgreset_e38b', '1'); } } catch (e4) { }
       return d;
