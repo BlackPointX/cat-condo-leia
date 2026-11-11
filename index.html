@@ -3701,7 +3701,7 @@
     initialize: function Main() { Phaser.Scene.call(this, { key: 'main' }); },
     preload: function () {
       var self = this; ['cat2', 'tail2', 'eyes2', 'catS2', 'tailS2', 'eyesS2', 'cat3', 'tail3', 'eyes3', 'catS3', 'tailS3', 'eyesS3'].forEach(function (k) { delete SVGS[k]; });   // Etap 21: Kot Lvl 2 = PNG, bez proceduralnego SVG
-      Object.keys(SVGS).forEach(function (k) { var d = SVGS[k]; self.load.svg(k, dataToBlobURL(toDataURI(d.svg)), { width: d.w * 2, height: d.h * 2 }); });
+      Object.keys(SVGS).forEach(function (k) { var d = SVGS[k]; if (PRESVG[k]) { self.textures.addCanvas(k, PRESVG[k]); return; } self.load.svg(k, dataToBlobURL(toDataURI(d.svg)), { width: d.w * 2, height: d.h * 2 }); });
       Object.keys(C1_FILES).forEach(function (k) { self.load.image(k, k + '.png'); });
       Object.keys(SHEET_CATS).forEach(function (L) { var C = SHEET_CATS[L]; self.load.image(sheetKey(C.file), C.file); if (C.sr) self.load.image(sheetKey(C.sr.file), C.sr.file); });   // Etap 22: jeden arkusz Kota 2 (wycinany w locie)   // Etap 18: c1_body, c1_tail, c1_eyes_open, c1_eyes_closed, c1_acc_* (hat, bib, pacifier, diaper, mouse, bottle)
       this.load.on('loaderror', function (f) { if (window.console) console.warn('Brak pliku ' + f.key + ' – użyję tekstury zastępczej'); });
@@ -3791,11 +3791,26 @@
     }
   });
 
-  cloudBoot(function () { new Phaser.Game({
+  // Etap 42b: grafiki SVG rysowane na canvas przed startem (bez XHR na blob: – nie działało w niektórych przeglądarkach)
+  var PRESVG = {}, SVGFAIL = 0;
+  function preSvg(done) {
+    var keys = Object.keys(SVGS), left = keys.length, fin = false;
+    function end() { if (fin) return; fin = true; done(); }
+    if (!left) return end();
+    window.setTimeout(end, 7000);
+    keys.forEach(function (k) {
+      var d = SVGS[k], im = new Image();
+      function one() { if (--left <= 0) end(); }
+      im.onload = function () { try { var c = document.createElement('canvas'); c.width = d.w * 2; c.height = d.h * 2; c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); PRESVG[k] = c; } catch (e) { SVGFAIL++; } one(); };
+      im.onerror = function () { SVGFAIL++; one(); };
+      try { im.src = toDataURI(d.svg); } catch (e) { SVGFAIL++; one(); }
+    });
+  }
+  preSvg(function () { cloudBoot(function () { new Phaser.Game({
     type: Phaser.AUTO, parent: 'game', width: GW, height: GH, backgroundColor: '#d6efff', scene: Main,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     input: { activePointers: 1, touch: { capture: true } }, render: { antialias: true, roundPixels: false }
-  }); });
+  }); }); });
 })();
 </script>
 </body>
