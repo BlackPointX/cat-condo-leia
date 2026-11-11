@@ -2688,8 +2688,8 @@
     if (!CLOUD.on) { start(); return; }
     var done = false, tip = document.createElement('div'); tip.textContent = '☁️ Wczytuję zapis…'; tip.style.cssText = 'position:fixed;left:0;right:0;top:45%;text-align:center;color:#fff;font:bold 22px system-ui,sans-serif;z-index:9'; document.body.appendChild(tip);
     function go(msg) { if (done) return; done = true; CLOUD.msg = msg || ''; try { tip.remove(); } catch (e) { } start(); }
-    var timer = window.setTimeout(function () { go('brak połączenia'); }, 8000);
-    window.fetch(cloudUrl(), { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); }).then(function (c) {
+    var timer = window.setTimeout(function () { go('baza nie odpowiedziała w 8 s'); }, 8000);
+    window.fetch(cloudUrl(), { cache: 'no-store' }).then(function (r) { if (!r.ok) { var e0 = new Error('http'); e0.st = r.status; throw e0; } return r.json(); }).then(function (c) {
       if (done) return; window.clearTimeout(timer);
       var LS = window.localStorage, rawL = LS.getItem(SAVE_KEY), L = null, C = null, seen = LS.getItem('catcondo_leia_cloud_seen') === '1', force = LS.getItem('catcondo_leia_cloud_push') === '1';
       try { L = rawL ? JSON.parse(rawL) : null; } catch (e1) { L = null; }
@@ -2701,7 +2701,7 @@
       LS.setItem('catcondo_leia_cloud_seen', '1'); CLOUD.force = force;
       if (C) { var day = String(new Date().getDay()); if (LS.getItem('catcondo_leia_cloud_day') !== day) { LS.setItem('catcondo_leia_cloud_day', day); cloudPut(c.s, '_d' + day); } }
       CLOUD.rev = c ? (Number(c.t) || 0) : 0; CLOUD.checked = Date.now(); CLOUD.synced = true; CLOUD.last = Date.now(); go('');
-    }).catch(function () { window.clearTimeout(timer); go('brak połączenia'); });
+    }).catch(function (e) { window.clearTimeout(timer); var st = e && e.st; go(st === 401 || st === 403 ? 'baza odmawia dostępu (błąd ' + st + ' – reguły bazy)' : st ? 'błąd bazy ' + st : 'brak połączenia z bazą (' + String(e && e.message || e).slice(0, 40) + ')'); });
   }
   function cloudStatus() { if (!CLOUD.on) return ''; if (!CLOUD.synced) return '☁️ Zapis online: ' + (CLOUD.msg || 'brak połączenia') + '. Postęp zapisuje się teraz tylko na tym telefonie.';
     var d = new Date(CLOUD.last), hh = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); return CLOUD.fail ? '☁️ Zapis online: chwilowo brak połączenia (ostatnio ' + hh + ').' : '☁️ Zapis online działa (ostatnio ' + hh + ').'; }
